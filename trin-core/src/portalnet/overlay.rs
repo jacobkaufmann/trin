@@ -254,25 +254,15 @@ impl<TContentKey: OverlayContentKey + Send> OverlayProtocol<TContentKey> {
     /// Offer is also sent to nodes after FindContent (POKE)
     pub async fn send_offer(
         &self,
-        content_keys: Vec<Vec<u8>>,
+        content_keys: Vec<TContentKey>,
         enr: Enr,
     ) -> Result<Accept, OverlayRequestError> {
         // Construct the request.
         let request = Offer {
-            content_keys: content_keys.clone(),
+            content_keys: content_keys.clone().into_iter().map(|k| k.into()).collect(),
         };
         let direction = RequestDirection::Outgoing {
             destination: enr.clone(),
-        };
-
-        // todo: remove after updating `Offer` to use `ContentKey` type
-        let content_keys_offered: Result<Vec<TContentKey>, TContentKey::Error> = content_keys
-            .into_iter()
-            .map(|key| (TContentKey::try_from)(key))
-            .collect();
-        let content_keys_offered: Vec<TContentKey> = match content_keys_offered {
-            Ok(val) => val,
-            Err(_msg) => return Err(OverlayRequestError::DecodeError),
         };
 
         // Send the request and wait on the response.
@@ -281,7 +271,7 @@ impl<TContentKey: OverlayContentKey + Send> OverlayProtocol<TContentKey> {
             .await
         {
             Ok(Response::Accept(accept)) => Ok(self
-                .process_accept_response(accept, enr, content_keys_offered)
+                .process_accept_response(accept, enr, content_keys)
                 .await),
             Ok(_) => Err(OverlayRequestError::InvalidResponse),
             Err(error) => Err(error),

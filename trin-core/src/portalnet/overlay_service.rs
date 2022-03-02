@@ -572,15 +572,33 @@ impl<TContentKey: OverlayContentKey + Send> OverlayService<TContentKey> {
 
     /// Attempts to build a `Accept` response for a `Offer` request.
     fn handle_offer(&self, request: Offer) -> Result<Accept, OverlayRequestError> {
-        let mut requested_keys = BitList::with_capacity(request.content_keys.len())
+        // Validate content keys in `Offer` request.
+        let content_keys: Vec<TContentKey> = match request
+            .content_keys
+            .into_iter()
+            .map(|k| (TContentKey::try_from)(k))
+            .collect()
+        {
+            Ok(keys) => keys,
+            Err(_) => {
+                return Err(OverlayRequestError::InvalidRequest(format!(
+                    "At least one invalid content key",
+                )))
+            }
+        };
+
+        let mut requested_keys = BitList::with_capacity(content_keys.len())
             .map_err(|e| OverlayRequestError::AcceptError(e))?;
         let connection_id: u16 = crate::utp::stream::rand();
 
-        for (i, key) in request.content_keys.iter().enumerate() {
-            // should_store is currently a dummy function
-            // the actual function will take ContentKey type, so we'll  have to decode keys here
+        for (i, key) in content_keys.iter().enumerate() {
             requested_keys
-                .set(i, should_store(key))
+                .set(
+                    i,
+                    self.storage.should_store(key).map_err(|e| {
+                        OverlayRequestError::Failure(format!("Database error: {:?}", e))
+                    })?,
+                )
                 .map_err(|e| OverlayRequestError::AcceptError(e))?;
         }
 
@@ -1723,8 +1741,4 @@ mod tests {
         let expected_index = bucket.get_index(&key).unwrap();
         assert_eq!(target_bucket_idx, expected_index as u8);
     }
-}
-
-fn should_store(_key: &Vec<u8>) -> bool {
-    return true;
 }
